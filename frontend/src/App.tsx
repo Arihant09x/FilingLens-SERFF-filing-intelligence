@@ -36,6 +36,7 @@ import {
   Search,
   ShieldCheck,
   Sun,
+  Trash2,
   UploadCloud,
   X,
 } from "lucide-react";
@@ -69,6 +70,29 @@ function useQuery<TData>(
   return useTanstackQuery(options) as ReturnType<
     typeof useTanstackQuery<TData>
   > & { data: TData };
+}
+function useDeleteFiling() {
+  const queryClient = useQueryClient();
+
+  return async (id: string): Promise<boolean> => {
+    const ok = window.confirm(
+      "Delete this filing? The extracted data and stored PDF will be removed. This cannot be undone.",
+    );
+    if (!ok) return false;
+
+    try {
+      await documentsApi.remove(id);
+      await queryClient.invalidateQueries({ queryKey: ["documents"] });
+      await queryClient.removeQueries({ queryKey: ["document", id] });
+      await queryClient.removeQueries({ queryKey: ["extractions", id] });
+      await queryClient.removeQueries({ queryKey: ["review", id] });
+      toast.success("Filing deleted");
+      return true;
+    } catch {
+      toast.error("Unable to delete this filing. Please try again.");
+      return false;
+    }
+  };
 }
 
 const authSchema = z.object({
@@ -623,12 +647,21 @@ function Metric({
 }
 function FilingCard({ document }: { document: Document }) {
   const navigate = useNavigate();
+  const deleteFiling = useDeleteFiling();
   const isProcessing = ["queued", "processing"].includes(document.status);
   const progress = document.progress_percentage ?? 0;
   const hasProgress =
     typeof document.progress_percentage === "number" &&
     typeof document.current_page === "number" &&
     typeof document.total_pages === "number";
+
+  const handleDelete = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    const deleted = await deleteFiling(document.id);
+    if (deleted) {
+      // No navigation needed — card disappears after invalidation.
+    }
+  };
 
   return (
     <Card
@@ -643,7 +676,18 @@ function FilingCard({ document }: { document: Document }) {
         <div className="file-mark">
           <FileText size={19} />
         </div>
-        <Badge tone={statusTone(document.status)}>{document.status}</Badge>
+        <div className="card-header-right">
+          <Badge tone={statusTone(document.status)}>{document.status}</Badge>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Delete filing"
+            title="Delete filing"
+            onClick={handleDelete}
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
       </CardHeader>
       <CardContent>
         <h3>{document.filename}</h3>
@@ -978,7 +1022,10 @@ function FilingWorkspace() {
             {Math.round(data.snapshot.average_confidence * 100)}%
           </p>
         </div>
-        <ExportMenu id={id!} data={data} />
+        <div className="workspace-actions">
+          <ExportMenu id={id!} data={data} />
+          <DeleteFilingButton id={id!} />
+        </div>
       </div>
 
       <Snapshot document={filingData} data={data} />
@@ -1142,6 +1189,23 @@ function FilingWorkspace() {
         </aside>
       </div>
     </section>
+  );
+}
+
+function DeleteFilingButton({ id }: { id: string }) {
+  const navigate = useNavigate();
+  const deleteFiling = useDeleteFiling();
+
+  return (
+    <Button
+      variant="secondary"
+      onClick={async () => {
+        const deleted = await deleteFiling(id);
+        if (deleted) navigate("/dashboard");
+      }}
+    >
+      <Trash2 size={15} /> Delete
+    </Button>
   );
 }
 
@@ -1344,14 +1408,25 @@ function SnapshotMetric({
 }
 function ProcessingView({ document, id }: { document?: Document; id: string }) {
   const navigate = useNavigate();
+
   const retry = async () => {
     try {
       await documentsApi.extract(id);
-      toast.success("Extraction started");
+      toast.success("Extraction restarted");
     } catch {
-      toast.error("We could not start extraction. Please try again.");
+      toast.error("We could not restart extraction. Please try again.");
     }
   };
+
+  const isFailed = document?.status === "failed";
+  const stage = document?.stage ?? "queued";
+  const message = document?.message ?? "Waiting to start";
+  const progress =
+    typeof document?.progress_percentage === "number"
+      ? document.progress_percentage
+      : 0;
+  const hasProgress = progress > 0;
+
   return (
     <section className="processing-page">
       <div className="processing-orbit">
@@ -1359,21 +1434,18 @@ function ProcessingView({ document, id }: { document?: Document; id: string }) {
       </div>
       <p className="eyebrow">Filing workspace</p>
       <h1>
-        {document?.status === "failed"
-          ? "Extraction needs attention"
-          : "Processing your filing"}
+        {isFailed ? "Extraction needs attention" : "Processing your filing"}
       </h1>
       <p className="muted">
-        {document?.filename || "Your filing"} ·{" "}
-        {document?.status === "failed"
-          ? "The backend reported a failure."
-          : "Analyzing structure, evidence, and SERFF signals."}
+        {document?.filename ?? "Your filing"} · {message}
       </p>
-      {document?.status === "failed" ? (
+
+      {isFailed ? (
         <>
           <Alert tone="danger">
             <AlertCircle size={16} />
-            We couldn't extract this filing. You can retry extraction.
+            {document?.error_message ||
+              "We couldn't extract this filing. You can retry extraction."}
           </Alert>
           <div className="processing-actions">
             <Button onClick={retry}>Retry extraction</Button>
@@ -1384,27 +1456,28 @@ function ProcessingView({ document, id }: { document?: Document; id: string }) {
         </>
       ) : (
         <>
-          {document &&
-          typeof document.progress_percentage === "number" &&
-          document.progress_percentage > 0 ? (
+          {hasProgress ? (
             <>
-              <Progress value={document.progress_percentage} />
+              <Progress value={progress} />
               <small className="progress-note">
-                {document.current_page > 0 && document.total_pages
+                {document?.current_page != null && document?.total_pages != null
                   ? `Page ${document.current_page} / ${document.total_pages} · `
                   : ""}
-                {Math.round(document.progress_percentage)}% processed
+                {Math.round(progress)}% · stage: {stage}
               </small>
             </>
           ) : (
-            <Progress value={null} indeterminate />
+            <>
+              <Progress indeterminate />
+              <small className="progress-note">Stage: {stage}</small>
+            </>
           )}
           <div className="processing-status">
             <span>Status</span>
-            <Badge tone="info">{document?.status || "queued"}</Badge>
+            <Badge tone="info">{document?.status ?? "queued"}</Badge>
           </div>
           <p className="muted small">
-            Live page progress is shown when the backend exposes it.
+            This view refreshes every 2 seconds while extraction is running.
           </p>
         </>
       )}

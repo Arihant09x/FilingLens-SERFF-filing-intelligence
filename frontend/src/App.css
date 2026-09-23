@@ -2221,3 +2221,32 @@ label {
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+.workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filing-card .icon-button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.filing-card .icon-button:hover {
+  background: var(--red);
+  color: #923f43;
+}
