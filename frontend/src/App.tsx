@@ -444,6 +444,14 @@ function Dashboard() {
       };
     },
     placeholderData: (prev) => prev,
+    refetchInterval: (query) => {
+      const items = query.state.data?.items ?? [];
+      return items.some((item) =>
+        ["queued", "processing"].includes(item.status),
+      )
+        ? 1500
+        : false;
+    },
   });
 
   const documents = useMemo(() => data?.items ?? [], [data]);
@@ -1371,7 +1379,21 @@ function ProcessingView({ document, id }: { document?: Document; id: string }) {
         </>
       ) : (
         <>
-          <Progress indeterminate />
+          {document &&
+          typeof document.progress_percentage === "number" &&
+          document.progress_percentage > 0 ? (
+            <>
+              <Progress value={document.progress_percentage} />
+              <small className="progress-note">
+                {document.current_page > 0 && document.total_pages
+                  ? `Page ${document.current_page} / ${document.total_pages} · `
+                  : ""}
+                {Math.round(document.progress_percentage)}% processed
+              </small>
+            </>
+          ) : (
+            <Progress value={null} indeterminate />
+          )}
           <div className="processing-status">
             <span>Status</span>
             <Badge tone="info">{document?.status || "queued"}</Badge>
