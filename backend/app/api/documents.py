@@ -1,7 +1,8 @@
 from typing import Annotated
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,8 +14,9 @@ from app.models.user import User
 from app.schemas.document import DocumentResponse, UploadResponse
 from app.services.document_service import create_document
 from app.utils.file_validation import validate_pdf
-from app.workers.extraction_worker import run_extraction_job
+from app.workers.queue import queue
 from app.storage.local import LocalStorage
+from app.core.config import get_settings
 from app.core.logging import get_logger
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
@@ -23,7 +25,7 @@ logger = get_logger(__name__)
 
 
 @router.post("/upload", response_model=UploadResponse, status_code=201)
-async def upload_document(background_tasks: BackgroundTasks, request: Request, file: Annotated[UploadFile, File(...)], user: Annotated[User, Depends(get_current_user)], db: Annotated[AsyncSession, Depends(get_db)]):
+async def upload_document(request: Request, file: Annotated[UploadFile, File(...)], user: Annotated[User, Depends(get_current_user)], db: Annotated[AsyncSession, Depends(get_db)]):
 	content = await file.read()
 	try:
 		validate_pdf(file.filename or "upload.pdf", content)
@@ -31,9 +33,17 @@ async def upload_document(background_tasks: BackgroundTasks, request: Request, f
 	except ValueError as error:
 		raise HTTPException(status_code=422, detail=str(error))
 	document.status = "queued"
+	document.stage = "queued"
+	document.progress_percentage = 0
+	document.current_page = 0
+	document.total_pages = None
+	document.message = "Queued for processing"
 	await db.commit()
-	background_tasks.add_task(run_extraction_job, document.id, request.state.request_id)
-	return {"document_id": document.id, "job_id": str(document.id), "status": document.status}
+	job_id = await queue.enqueue(str(document.id), request_id=getattr(request.state, "request_id", None))
+	document.job_id = job_id
+	await db.commit()
+	logger.info("extraction_job_queued", document_id=str(document.id), job_id=job_id)
+	return {"document_id": document.id, "job_id": job_id, "status": document.status}
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -61,14 +71,30 @@ async def delete_document(document_id: UUID, user: Annotated[User, Depends(get_c
 
 
 @router.post("/{document_id}/extract")
-async def extract(document_id: UUID, background_tasks: BackgroundTasks, request: Request, user: Annotated[User, Depends(get_current_user)], db: Annotated[AsyncSession, Depends(get_db)]):
+async def extract(document_id: UUID, request: Request, user: Annotated[User, Depends(get_current_user)], db: Annotated[AsyncSession, Depends(get_db)]):
 	document = await db.scalar(select(Document).where(Document.id == document_id, Document.user_id == user.id))
 	if document is None:
 		raise HTTPException(status_code=404, detail="Document not found")
+	stale_after = timedelta(minutes=get_settings().processing_stale_minutes)
+	last_activity = document.last_progress_at or document.started_at or document.created_at
+	if document.status == "queued":
+		return {"document_id": document.id, "job_id": document.job_id or str(document.id), "status": document.status}
+	if document.status == "processing" and datetime.now(timezone.utc) - last_activity < stale_after:
+		return {"document_id": document.id, "job_id": document.job_id or str(document.id), "status": document.status}
 	document.status = "queued"
+	document.stage = "queued"
+	document.message = "Queued for processing"
+	document.progress_percentage = 0
+	document.current_page = 0
+	document.total_pages = None
+	document.started_at = None
+	document.completed_at = None
+	document.error_message = None
 	await db.commit()
-	background_tasks.add_task(run_extraction_job, document.id, request.state.request_id)
-	return {"document_id": document.id, "job_id": str(document.id), "status": document.status}
+	job_id = await queue.enqueue(str(document.id), request_id=getattr(request.state, "request_id", None))
+	document.job_id = job_id
+	await db.commit()
+	return {"document_id": document.id, "job_id": job_id, "status": document.status}
 
 
 @router.get("/{document_id}/extractions")

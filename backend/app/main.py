@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,15 +17,27 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
 from app.models import Document, ExtractionVersion, User  # noqa: F401
+from app.workers.extraction_worker import worker_loop
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
 	async with engine.begin() as connection:
 		await connection.run_sync(Base.metadata.create_all)
-	yield
-	await redis_client.close()
-	await engine.dispose()
+	worker_task = None
+	if settings.environment.lower() != "production":
+		worker_task = asyncio.create_task(worker_loop())
+	try:
+		yield
+	finally:
+		if worker_task is not None:
+			worker_task.cancel()
+			try:
+				await worker_task
+			except asyncio.CancelledError:
+				pass
+		await redis_client.close()
+		await engine.dispose()
 
 
 configure_logging()

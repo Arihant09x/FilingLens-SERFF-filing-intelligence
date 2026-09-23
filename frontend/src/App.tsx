@@ -658,14 +658,19 @@ function FilingCard({ document }: { document: Document }) {
 
         {isProcessing && (
           <>
-            <Progress
-              value={hasProgress ? progress : undefined}
-              indeterminate={!hasProgress}
-            />
+            <div className="progress-wrap">
+              <Progress
+                value={hasProgress ? progress : undefined}
+                indeterminate={!hasProgress}
+              />
+              {hasProgress && (
+                <span className="progress-pct">{Math.round(progress)}%</span>
+              )}
+            </div>
             {hasProgress && (
               <small className="progress-note">
-                Page {document.current_page} / {document.total_pages} ·{" "}
-                {progress}%
+                Page {document.current_page} / {document.total_pages}
+                {document.message ? ` · ${document.message}` : ""}
               </small>
             )}
           </>

@@ -5,9 +5,15 @@ from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
-# Resolve .env relative to this file's parent (backend/)
-BASE_DIR = Path(__file__).resolve().parents[2]
-ENV_FILE = BASE_DIR / ".env"
+# Resolve env files from both the backend directory and the repo root.
+# The project currently stores the live DB/Redis secrets in backend/.env, while
+# older setups keep them at the repo root. Load both, with backend/.env taking
+# precedence when it exists.
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_DIR.parent
+BACKEND_ENV_FILE = BACKEND_DIR / ".env"
+REPO_ENV_FILE = REPO_ROOT / ".env"
+ENV_FILES = [BACKEND_ENV_FILE, REPO_ENV_FILE]
 
 
 class Settings(BaseSettings):
@@ -20,6 +26,7 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(validation_alias="SECRET_KEY")
     jwt_access_expire_minutes: int = Field(validation_alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     jwt_refresh_expire_days: int = Field(validation_alias="REFRESH_TOKEN_EXPIRE_DAYS")
+    processing_stale_minutes: int = 15
 
     cors_origins: list[str] = ["http://localhost:5173"]
     max_upload_size_mb: int = 50
@@ -32,7 +39,7 @@ class Settings(BaseSettings):
     s3_secret_key: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=ENV_FILE,
+        env_file=ENV_FILES,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

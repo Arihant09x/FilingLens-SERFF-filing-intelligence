@@ -1,11 +1,12 @@
 from pathlib import Path
 
-from app.core.config import get_settings
+from app.core.config import BACKEND_DIR, get_settings
 
 
 class LocalStorage:
 	def __init__(self, root: str | None = None):
-		self.root = Path(root or get_settings().local_storage_path)
+		configured_root = Path(root or get_settings().local_storage_path)
+		self.root = configured_root if configured_root.is_absolute() else BACKEND_DIR / configured_root
 		self.root.mkdir(parents=True, exist_ok=True)
 
 	async def save(self, key: str, content: bytes) -> str:

@@ -15,6 +15,14 @@ export type Document = {
   filename: string;
   file_size: number;
   page_count: number | null;
+  stage: string | null; // ← add
+  message: string | null; // ← add
+  job_id: string | null; // ← add
+  attempt_count: number; // ← add
+  started_at: string | null; // ← add
+  completed_at: string | null; // ← add
+  last_progress_at: string | null; // ← add
+  error_message: string | null; // ← add
   status: string;
   current_page: number;
   total_pages: number | null;

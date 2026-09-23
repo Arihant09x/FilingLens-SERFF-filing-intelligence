@@ -10,9 +10,16 @@ class DocumentResponse(BaseModel):
 	file_size: int
 	page_count: int | None
 	status: str
-	current_page: int
-	total_pages: int | None
-	progress_percentage: float
+	stage: str | None = None
+	message: str | None = None
+	job_id: str | None = None
+	current_page: int = 0
+	total_pages: int | None = None
+	progress_percentage: float = 0
+	started_at: datetime | None = None
+	completed_at: datetime | None = None
+	last_progress_at: datetime | None = None
+	error_message: str | None = None
 	created_at: datetime
 
 	model_config = {"from_attributes": True}

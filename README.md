@@ -2,8 +2,6 @@
 
 FilingLens turns complex SERFF insurance filings into review-ready structured data. It combines deterministic PDF extraction, SERFF-aware classification, source evidence, extraction confidence, and Review Radar flags in a focused compliance workspace.
 
-> **Logo:** FilingLens
-
 ## Product workflow
 
 ```text
@@ -169,6 +167,34 @@ The workspace provides a fixed navigation shell, Filing Snapshot, structure tree
 ## Scaling notes
 
 The storage interface supports local disk and S3-compatible storage. The current worker boundary uses FastAPI background execution and opens an independent database session; `app/workers/queue.py` is the adapter point for Redis/Celery deployment. The extraction pipeline has no process-global document state. For production, run a Redis/Celery queue, PostgreSQL, object storage, and multiple worker processes.
+
+## Production deployment
+
+The repository includes [render.yaml](render.yaml), which defines two Render services:
+
+- `filinglens-api`: FastAPI web service. It runs migrations during startup and serves Uvicorn.
+- `filinglens-extraction-worker`: background worker. It consumes the same Upstash Redis queue and runs PDF extraction outside the web process.
+
+In Render, create a Blueprint from the repository and set these secret values for both services:
+
+```text
+DATABASE_URL=your Neon async PostgreSQL URL
+REDIS_URL=your Upstash rediss URL
+S3_BUCKET=your object storage bucket
+S3_ENDPOINT=your S3-compatible endpoint
+S3_ACCESS_KEY=your object storage access key
+S3_SECRET_KEY=your object storage secret key
+```
+
+Set `CORS_ORIGINS` on the API service to the deployed Vercel origin, for example `https://your-app.vercel.app`. Keep `STORAGE_BACKEND=s3`; Render local disk is ephemeral and cannot be shared reliably between the web service and worker.
+
+Deploy the `frontend` directory as a Vercel project and set:
+
+```text
+VITE_API_URL=https://filinglens-api.onrender.com/api/v1
+```
+
+For a document that remains `processing` longer than `PROCESSING_STALE_MINUTES`, call `POST /api/v1/documents/{id}/extract` once. The API requeues stale work and the worker resumes it. Keep exactly one worker service initially; scale the worker service only when extraction concurrency and object storage capacity support it.
 
 ## Environment variables
 
