@@ -1,12 +1,36 @@
-filinglens.db
-tests/
+# ---- Python ----
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
-backend/storage/
-storage/
+*.egg-info/
+
+# ---- Env files ----
+.env
 backend/.env
 frontend/.env
+
+# ---- Databases ----
+filinglens.db
+*.db
+*.sqlite3
+
+# ---- Tests (repo-root only) ----
+/tests/
+
+# ---- Frontend ----
 frontend/node_modules/
 frontend/dist/
+frontend/.vite/
+
+# ---- Runtime file storage ----
+# Anchored to specific locations so the source package
+# backend/app/storage/ is NOT ignored.
+/storage/
+/backend/storage/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
